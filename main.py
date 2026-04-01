@@ -107,6 +107,9 @@ class Player:
     def __init__(self, name):
         self.name = name
         self.skyhold = Skyhold()
+
+# Starting structure so game doesn't instantly end
+self.skyhold.left.structures.append(Structure("Wooden Deck", 1, 0))
         self.credits = 5
 
     # ---------- PHASES ----------
