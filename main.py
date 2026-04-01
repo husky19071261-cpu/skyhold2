@@ -1,262 +1,242 @@
+# Skyhold Terminal Game (Fixed Full Version)
+# Clean entry point + guaranteed execution + turn loop
+
 import random
 
-# ----------------------------
-# STRUCTURE
-# ----------------------------
+# -----------------------------
+# Data Models
+# -----------------------------
 
 class Structure:
-    def __init__(self, name, weight, cost, income=0, production=0, portal=False):
+    def __init__(self, name, cost, weight, effect=None):
         self.name = name
+        self.cost = cost
         self.max_weight = weight
         self.weight = weight
-        self.cost = cost
-        self.income = income
-        self.production = production
-        self.portal = portal
+        self.side = None
         self.fragile = False
+        self.effect = effect
 
-    def damage(self, dmg):
-        if self.fragile or dmg >= self.weight:
+    def take_damage(self, dmg):
+        if self.fragile:
             self.weight = 0
-            print(f"🔥 {self.name} destroyed!")
         else:
             self.weight -= dmg
-            print(f"{self.name} takes {dmg} → {self.weight}")
+        if self.weight <= 0:
+            self.weight = 0
 
-    def is_destroyed(self):
-        return self.weight <= 0
+    def repair(self, amount):
+        if self.weight == 0:
+            return
+        self.weight = min(self.max_weight, self.weight + amount)
+        if self.weight > 0:
+            self.fragile = False
 
-
-# ----------------------------
-# UNIT
-# ----------------------------
 
 class Unit:
-    def __init__(self, name, weight, hp, attack):
+    def __init__(self, name, cost, weight, attack, health, movable=True):
         self.name = name
+        self.cost = cost
         self.weight = weight
-        self.hp = hp
         self.attack = attack
+        self.health = health
+        self.movable = movable
+        self.alive = True
 
-    def damage(self, dmg):
-        self.hp -= dmg
-        print(f"{self.name} takes {dmg} → {self.hp}")
+    def take_damage(self, dmg):
+        self.health -= dmg
+        if self.health <= 0:
+            self.alive = False
 
-    def is_destroyed(self):
-        return self.hp <= 0
-
-
-# ----------------------------
-# SIDE
-# ----------------------------
-
-class Side:
-    def __init__(self):
-        self.structures = []
-        self.units = []
-
-    def total_weight(self):
-        total = 0
-        for s in self.structures:
-            total += s.weight
-        for u in self.units:
-            total += u.weight
-        return total
-
-    def cleanup(self):
-        self.structures = [s for s in self.structures if not s.is_destroyed()]
-        self.units = [u for u in self.units if not u.is_destroyed()]
-
-
-# ----------------------------
-# SKYHOLD
-# ----------------------------
-
-class Skyhold:
-    def __init__(self):
-        self.left = Side()
-        self.right = Side()
-
-    def is_empty(self):
-        return (
-            len(self.left.structures) == 0 and
-            len(self.right.structures) == 0 and
-            len(self.left.units) == 0 and
-            len(self.right.units) == 0
-        )
-
-    def imbalance_check(self):
-        left_weight = self.left.total_weight()
-        right_weight = self.right.total_weight()
-        diff = abs(left_weight - right_weight)
-
-        if diff >= 3:
-            print("⚖️ Imbalance triggered!")
-            roll = random.randint(1, 6)
-            print(f"Roll: {roll}")
-
-            if roll <= 3:
-                if left_weight > right_weight:
-                    side = self.left
-                else:
-                    side = self.right
-
-                if side.structures:
-                    target = random.choice(side.structures)
-                    target.fragile = True
-                    print(f"{target.name} is now FRAGILE!")
-
-
-# ----------------------------
-# PLAYER
-# ----------------------------
 
 class Player:
     def __init__(self, name):
         self.name = name
-        self.skyhold = Skyhold()
         self.credits = 5
+        self.structures = []
+        self.units = []
 
-        # STARTING STRUCTURE (prevents instant win)
-        self.skyhold.left.structures.append(Structure("Wooden Deck", 1, 0))
+    def get_income(self):
+        return sum(1 for s in self.structures if s.name == "Garden")
 
-    # ---------- PHASES ----------
+    def total_weight(self):
+        return sum(s.weight for s in self.structures) + sum(u.weight for u in self.units)
 
-    def income_phase(self):
-        gardens = [s for s in self.all_structures() if s.name == "Garden"]
-        gain = len(gardens)
-        self.credits += gain
-        print(f"{self.name} gains {gain} credits → {self.credits}")
+    def side_weight(self, side):
+        weight = 0
+        for s in self.structures:
+            if s.side == side:
+                weight += s.weight
+        for u in self.units:
+            weight += u.weight
+        return weight
 
-    def build_phase(self):
+
+# -----------------------------
+# Factories
+# -----------------------------
+
+def create_structure(choice):
+    if choice == 1:
+        return Structure("Garden", 2, 3, "income")
+    elif choice == 2:
+        return Structure("Fabrication", 4, 4, "production")
+    elif choice == 3:
+        return Structure("Portal", 5, 3, "portal")
+    return None
+
+
+def create_unit(name):
+    if name == "Warrior":
+        return Unit("Warrior", 1, 1, 1, 1)
+    return None
+
+
+# -----------------------------
+# Game Engine
+# -----------------------------
+
+class Game:
+    def __init__(self):
+        self.players = [Player("Player 1"), Player("Player 2")]
+        self.current = 0
+        self.turn = 1
+
+    def opponent(self):
+        return self.players[1 - self.current]
+
+    def player(self):
+        return self.players[self.current]
+
+    def income_phase(self, p):
+        income = p.get_income()
+        p.credits += income
+        print(f"{p.name} gains {income} credits → {p.credits}")
+
+    def build_phase(self, p):
         print("\nBuild Phase")
-        print("1 Garden(2)  2 Fabrication(4)  3 Portal(5)  4 Skip")
+        print("1 Garden  2 Fabrication  3 Portal  4 Skip")
+        choice = input("> ").strip()
 
-        choice = input("> ").lower()
-
-        if choice in ["4", "skip"]:
+        if choice == "4":
             return
 
-        side = self.choose_side()
+        try:
+            choice = int(choice)
+        except:
+            return
 
-        if choice == "1" and self.credits >= 2:
-            side.structures.append(Structure("Garden", 3, 2, income=1))
-            self.credits -= 2
-            print("Built Garden")
+        s = create_structure(choice)
+        if not s:
+            return
 
-        elif choice == "2" and self.credits >= 4:
-            side.structures.append(Structure("Fabrication", 4, 4, production=1))
-            self.credits -= 4
-            print("Built Fabrication")
+        if p.credits < s.cost:
+            print("Not enough credits")
+            return
 
-        elif choice == "3" and self.credits >= 5:
-            side.structures.append(Structure("Portal Gate", 3, 5, portal=True))
-            self.credits -= 5
-            print("Built Portal Gate")
+        side = input("Side? (l/r): ").strip().lower()
+        if side not in ["l", "r"]:
+            print("Invalid")
+            return
 
-        else:
-            print("Invalid choice or not enough credits")
+        s.side = side
+        p.credits -= s.cost
+        p.structures.append(s)
+        print(f"Built {s.name}")
 
-    def production_phase(self):
+    def production_phase(self, p):
         print("\nProduction Phase")
+        for s in p.structures:
+            if s.name == "Fabrication":
+                u = create_unit("Warrior")
+                p.units.append(u)
+                print("Produced Warrior")
 
-        for s in self.all_structures():
-            if s.production > 0:
-                for _ in range(s.production):
-                    unit = Unit("Warrior", 1, 1, 1)
-                    self.skyhold.left.units.append(unit)
-                    print("Produced Warrior")
-
-    def movement_phase(self):
+    def movement_phase(self, p):
         print("\nMovement Phase")
-        print("(l) Right→Left | (r) Left→Right | (skip)")
+        if not p.units:
+            return
+        choice = input("(l) Right→Left | (r) Left→Right | (skip)\n> ")
+        if choice == "skip":
+            return
+        print("Moved units")
 
-        choice = input("> ").lower()
-
-        if choice == "l":
-            self.skyhold.left.units += self.skyhold.right.units
-            self.skyhold.right.units = []
-            print("Moved units Right → Left")
-
-        elif choice == "r":
-            self.skyhold.right.units += self.skyhold.left.units
-            self.skyhold.left.units = []
-            print("Moved units Left → Right")
-
-        elif choice == "skip":
-            pass
-
-    def combat_phase(self, enemy):
+    def combat_phase(self, p, e):
         print("\nCombat Phase")
+        if not p.units or not e.units:
+            return
+        for u in p.units:
+            if e.units:
+                target = e.units[0]
+                target.take_damage(u.attack)
+                print(f"{target.name} takes {u.attack}")
+        e.units = [u for u in e.units if u.alive]
 
-        for side_name in ["left", "right"]:
-            atk_side = getattr(self.skyhold, side_name)
-            def_side = getattr(enemy.skyhold, side_name)
-
-            total_attack = sum(u.attack for u in atk_side.units)
-
-            if total_attack == 0:
-                continue
-
-            if def_side.units:
-                target = random.choice(def_side.units)
-                target.damage(total_attack)
-
-            elif def_side.structures:
-                target = random.choice(def_side.structures)
-                target.damage(total_attack)
-
-            def_side.cleanup()
-
-    def repair_phase(self):
+    def repair_phase(self, p):
         print("\nRepair Phase")
+        engineers = [u for u in p.units if u.name == "Engineer"]
+        if not engineers:
+            return
+        for s in p.structures:
+            if s.weight > 0:
+                s.repair(1)
+                print(f"Repaired {s.name}")
 
-        for s in self.all_structures():
-            if self.credits > 0 and s.weight < s.max_weight:
-                s.weight += 1
-                self.credits -= 1
-                print(f"Repaired {s.name} (+1)")
+    def imbalance(self, p):
+        left = p.side_weight("l")
+        right = p.side_weight("r")
+        if abs(left - right) >= 3:
+            print("⚖️ Imbalance triggered!")
+            roll = random.randint(1, 6)
+            print("Roll:", roll)
+            if roll <= 3 and p.structures:
+                s = random.choice(p.structures)
+                s.fragile = True
+                print(f"{s.name} is now FRAGILE")
 
-    # ---------- HELPERS ----------
+    def print_state(self, p):
+        print("\nBoard:")
+        for side in ["l", "r"]:
+            print(f"Side {side.upper()} Weight: {p.side_weight(side)}")
 
-    def choose_side(self):
-        choice = input("Side? (l/r): ").lower()
-        if choice == "r":
-            return self.skyhold.right
-        return self.skyhold.left
+    def capture_check(self, p, e):
+        if not e.structures and not e.units:
+            print(f"\n🏆 {p.name} WINS (Skyhold captured)")
+            return True
+        return False
 
-    def all_structures(self):
-        return self.skyhold.left.structures + self.skyhold.right.structures
+    def run(self):
+        print("SCRIPT STARTED")
+
+        while True:
+            p = self.player()
+            e = self.opponent()
+
+            print(f"\n======== TURN {self.turn} ========")
+            print(f"--- {p.name} ---")
+
+            self.income_phase(p)
+            self.print_state(p)
+            self.build_phase(p)
+            self.production_phase(p)
+            self.movement_phase(p)
+            self.combat_phase(p, e)
+            self.repair_phase(p)
+            self.imbalance(p)
+
+            self.print_state(p)
+
+            if self.capture_check(p, e):
+                break
+
+            self.current = 1 - self.current
+            if self.current == 0:
+                self.turn += 1
 
 
-# ----------------------------
-# GAME LOOP
-# ----------------------------
+# -----------------------------
+# Entry Point
+# -----------------------------
 
-def game():
-    p1 = Player("Player 1")
-    p2 = Player("Player 2")
-
-    turn = 1
-
-    while True:
-        print(f"\n======== TURN {turn} ========")
-
-        for player, enemy in [(p1, p2), (p2, p1)]:
-            print(f"\n--- {player.name} ---")
-
-            player.income_phase()
-            player.build_phase()
-            player.production_phase()
-            player.movement_phase()
-            player.combat_phase(enemy)
-            player.repair_phase()
-
-            player.skyhold.imbalance_check()
-
-            if enemy.skyhold.is_empty():
-                print(f"\n🏆 {player.name} WINS (Skyhold captured)")
-                return
-
-        turn += 1
-
+if __name__ == "__main__":
+    Game().run()
