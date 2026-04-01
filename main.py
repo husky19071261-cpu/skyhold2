@@ -114,7 +114,7 @@ self.credits = 5
 
     # ---------- PHASES ----------
 
-    def income(self):
+ def income(self):
         gardens = [s for s in self.all_structures() if s.name == "Garden"]
         gain = len(gardens)
         self.credits += gain
