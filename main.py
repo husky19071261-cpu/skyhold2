@@ -260,6 +260,3 @@ def game():
 
         turn += 1
 
-
-if __name__ == "__main__":
-    game()
